@@ -197,8 +197,8 @@ async function run() {
     }
     const { device, context, format, size } = await initWebGPU(canvas);
 
-    console.log(cubeObj);
-    //let mesh1 = await Mesh.createMesh('./meshes/cube.obj');
+    //console.log(cubeObj);
+    let mesh1 = await Mesh.createMeshWithText(cubeObj);
 
     // const pipelineObj = await initPipeline(device, format, size)
     // // defaut state

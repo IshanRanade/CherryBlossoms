@@ -8,6 +8,10 @@ class Mesh {
     private constructor(objString: string) {
         this.objMesh = new MeshObject(objString);
 
+        if(!this.objMesh) {
+            throw new Error('Could not load mesh obj');
+        }
+
         const kVertexStride = 8;
         const vertexCount = this.objMesh.vertices.length / 3;
         this.vertexBuffer = new Float32Array(kVertexStride * vertexCount);
@@ -15,23 +19,32 @@ class Mesh {
         for (let i = 0; i < vertexCount; ++i) {
             const offset = kVertexStride * i;
 
-            this.vertexBuffer.set(this.objMesh.vertices[(i * 3) + 0], offset + 0);
-            this.vertexBuffer.set(this.objMesh.vertices[(i * 3) + 1], offset + 1);
-            this.vertexBuffer.set(this.objMesh.vertices[(i * 3) + 2], offset + 2);
+            this.vertexBuffer[offset + 0] = this.objMesh.vertices[(i * 3) + 0];
+            this.vertexBuffer[offset + 1] = this.objMesh.vertices[(i * 3) + 1];
+            this.vertexBuffer[offset + 2] = this.objMesh.vertices[(i * 3) + 2];
 
-            this.vertexBuffer.set(this.objMesh.vertexNormals[(i * 3) + 0], offset + 3);
-            this.vertexBuffer.set(this.objMesh.vertexNormals[(i * 3) + 1], offset + 4);
-            this.vertexBuffer.set(this.objMesh.vertexNormals[(i * 3) + 2], offset + 5);
+            this.vertexBuffer[offset + 3] = this.objMesh.vertexNormals[(i * 3) + 0];
+            this.vertexBuffer[offset + 4] = this.objMesh.vertexNormals[(i * 3) + 1];
+            this.vertexBuffer[offset + 5] = this.objMesh.vertexNormals[(i * 3) + 2];
 
-            this.vertexBuffer.set(this.objMesh.textures[(i * 2) + 0], offset + 6);
-            this.vertexBuffer.set(this.objMesh.textures[(i * 2) + 1], offset + 7);
+            if(this.objMesh.textures.length === 0) {
+                this.vertexBuffer[offset + 6] = 0;
+                this.vertexBuffer[offset + 7] = 0;
+            } else {
+                this.vertexBuffer[offset + 6] = this.objMesh.textures[(i * 2) + 0];
+                this.vertexBuffer[offset + 7] = this.objMesh.textures[(i * 2) + 1];
+            }
         }
 
         const indexCount = this.objMesh.indices.length;
         this.indexBuffer = new Uint16Array(indexCount);
         for (let i = 0; i < indexCount; ++i) {
-            this.indexBuffer.set(this.objMesh.indices[i], i);
+            this.indexBuffer[i] = this.objMesh.indices[i];
         }
+    }
+
+    static async createMeshWithText(text: string) {
+        return new Mesh(text);
     }
 
     static async createMesh(filepath: string): Promise<Mesh> {
