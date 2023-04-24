@@ -4,6 +4,11 @@ class Mesh {
     objMesh: any;
     vertexBuffer: Float32Array;
     indexBuffer: Uint16Array;
+    vertexSize: number = 4 * 8;
+    positionOffset: number = 0;
+    normalOffset: number = 4 * 3;
+    uvOffset: number = 4 * 6;
+
 
     private constructor(objString: string) {
         this.objMesh = new MeshObject(objString);
@@ -73,6 +78,16 @@ class Mesh {
     getIndexBuffer(): Uint16Array {
         return this.indexBuffer;
     }
+
+    getVertexBufferByteSize(): number {
+        return this.vertexBuffer.length * 4;
+    }
+
+    getIndexBufferByteSize(): number {
+        return this.indexBuffer.length * 2;
+    }
+
+
 };
 
 export { Mesh };

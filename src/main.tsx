@@ -2,6 +2,7 @@ import basicVert from './shaders/basic.vert.wgsl?raw';
 import basicFrag from './shaders/basic.frag.wgsl?raw';
 import cubeObj from './meshes/cube.obj?raw';
 import { Mesh } from './mesh.tsx';
+import { getMvpMatrix } from './util/math'
 
 async function initWebGPU(canvas: HTMLCanvasElement) {
     if (!navigator.gpu) {
@@ -30,28 +31,40 @@ async function initWebGPU(canvas: HTMLCanvasElement) {
 }
 
 // create pipiline & buffers
-async function initPipeline(device: GPUDevice, format: GPUTextureFormat, size: { width: number, height: number }) {
+async function initPipeline(device: GPUDevice, format: GPUTextureFormat, width: number, height: number,
+    vertexCode: string, fragmentCode: string,
+    meshIndexBuffer: Uint16Array, meshIndexBufferByteSize: number,
+    meshVertexBuffer: Float32Array, meshVertexBufferByteSize: number,
+    meshVertexByteSize: number, meshVertexBufferPositionOffset: number,
+    meshVertexBufferNormalOffset: number, meshVertexBufferUVOffset: number) {
+
     const pipeline = device.createRenderPipeline({
         layout: 'auto',
         vertex: {
             module: device.createShaderModule({
-                code: basicVert,
+                code: vertexCode,
             }),
             entryPoint: 'main',
             buffers: [
                 {
-                    arrayStride: cubeVertexSize,
+                    arrayStride: meshVertexByteSize,
                     attributes: [
                         {
                             // position
                             shaderLocation: 0,
-                            offset: cubePositionOffset,
-                            format: 'float32x4',
+                            offset: meshVertexBufferPositionOffset,
+                            format: 'float32x3',
+                        },
+                        {
+                            // normal
+                            shaderLocation: 1,
+                            offset: meshVertexBufferNormalOffset,
+                            format: 'float32x3',
                         },
                         {
                             // uv
-                            shaderLocation: 1,
-                            offset: cubeUVOffset,
+                            shaderLocation: 2,
+                            offset: meshVertexBufferUVOffset,
                             format: 'float32x2',
                         },
                     ],
@@ -60,7 +73,7 @@ async function initPipeline(device: GPUDevice, format: GPUTextureFormat, size: {
         },
         fragment: {
             module: device.createShaderModule({
-                code: basicFrag,
+                code: fragmentCode,
             }),
             entryPoint: 'main',
             targets: [
@@ -88,7 +101,7 @@ async function initPipeline(device: GPUDevice, format: GPUTextureFormat, size: {
     });
 
     const depthTexture = device.createTexture({
-        size: [size.width, size.height],
+        size: [width, height],
         format: 'depth24plus',
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
@@ -97,15 +110,28 @@ async function initPipeline(device: GPUDevice, format: GPUTextureFormat, size: {
     // create vertex buffer
     const vertexBuffer = device.createBuffer({
         label: 'GPUBuffer store vertex',
-        size: cubeVertexSize * cubeVertexCount,
+        size: meshVertexBufferByteSize,
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        mappedAtCreation: true
     });
-    device.queue.writeBuffer(vertexBuffer, 0, cubeVertexArray);
+    new Float32Array(vertexBuffer.getMappedRange()).set(meshVertexBuffer);
+    vertexBuffer.unmap();
+
+    // create index buffer
+    const indexCount = meshIndexBufferByteSize / 2;
+    const indexBuffer = device.createBuffer({
+        label: 'GPUBuffer store indices',
+        size: meshIndexBufferByteSize,
+        usage: GPUBufferUsage.INDEX,
+        mappedAtCreation: true,
+    });
+    new Uint16Array(indexBuffer.getMappedRange()).set(meshIndexBuffer);
+    indexBuffer.unmap();
 
     const uniformBufferSize = 4 * 16; // 4x4 matrix
     const uniformBuffer = device.createBuffer({
         size: uniformBufferSize,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 
     const uniformBindGroup = device.createBindGroup({
@@ -120,26 +146,7 @@ async function initPipeline(device: GPUDevice, format: GPUTextureFormat, size: {
         ],
     });
 
-    const renderPassDescriptor: GPURenderPassDescriptor = {
-        colorAttachments: [
-            {
-                view: undefined, // Assigned later
-
-                clearValue: { r: 0.5, g: 0.5, b: 0.5, a: 1.0 },
-                loadOp: 'clear',
-                storeOp: 'store',
-            },
-        ],
-        depthStencilAttachment: {
-            view: depthTexture.createView(),
-
-            depthClearValue: 1.0,
-            depthLoadOp: 'clear',
-            depthStoreOp: 'store',
-        },
-    };
-
-    return { pipeline, depthTexture, depthView, vertexBuffer, mvpBuffer1, mvpBuffer2, group1, group2 };
+    return { pipeline, depthTexture, depthView, vertexBuffer, indexBuffer, indexCount, uniformBuffer, uniformBindGroup };
 }
 
 function draw(
@@ -147,12 +154,13 @@ function draw(
     context: GPUCanvasContext,
     pipelineObj: {
         pipeline: GPURenderPipeline,
+        depthTexture: any,
+        depthView: any,
         vertexBuffer: GPUBuffer,
-        mvpBuffer1: GPUBuffer,
-        mvpBuffer2: GPUBuffer,
-        group1: GPUBindGroup,
-        group2: GPUBindGroup,
-        depthView: GPUTextureView
+        indexBuffer: GPUBuffer,
+        indexCount: number,
+        uniformBuffer: GPUBuffer,
+        uniformBindGroup: GPUBindGroup
     }
 ) {
     // start encoder
@@ -161,7 +169,7 @@ function draw(
         colorAttachments: [
             {
                 view: context.getCurrentTexture().createView(),
-                clearValue: { r: 0, g: 0, b: 0, a: 1.0 },
+                clearValue: { r: 1, g: 0, b: 0, a: 1.0 },
                 loadOp: 'clear',
                 storeOp: 'store'
             }
@@ -175,16 +183,12 @@ function draw(
     }
     const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor)
     passEncoder.setPipeline(pipelineObj.pipeline)
-    // set vertex
-    passEncoder.setVertexBuffer(0, pipelineObj.vertexBuffer)
-    {
-        // draw first cube
-        passEncoder.setBindGroup(0, pipelineObj.group1)
-        passEncoder.draw(cube.vertexCount)
-        // draw second cube
-        passEncoder.setBindGroup(0, pipelineObj.group2)
-        passEncoder.draw(cube.vertexCount)
-    }
+
+    passEncoder.setBindGroup(0, pipelineObj.uniformBindGroup);
+    passEncoder.setVertexBuffer(0, pipelineObj.vertexBuffer);
+    passEncoder.setIndexBuffer(pipelineObj.indexBuffer, 'uint16');
+    passEncoder.drawIndexed(pipelineObj.indexCount);
+    
     passEncoder.end()
     // webgpu run in a separate process, all the commands will be executed after submit
     device.queue.submit([commandEncoder.finish()])
@@ -195,53 +199,33 @@ async function run() {
     if (!canvas) {
         throw new Error('No Canvas')
     }
-    const { device, context, format, size } = await initWebGPU(canvas);
-
-    //console.log(cubeObj);
     let mesh1 = await Mesh.createMeshWithText(cubeObj);
 
-    // const pipelineObj = await initPipeline(device, format, size)
-    // // defaut state
-    // let aspect = size.width / size.height
-    // const position1 = { x: 2, y: 0, z: -8 }
-    // const rotation1 = { x: 0, y: 0, z: 0 }
-    // const scale1 = { x: 1, y: 1, z: 1 }
-    // const position2 = { x: -2, y: 0, z: -8 }
-    // const rotation2 = { x: 0, y: 0, z: 0 }
-    // const scale2 = { x: 1, y: 1, z: 1 }
-    // // start loop
-    // function frame() {
-    //     // first, update two transform matrixs
-    //     const now = Date.now() / 1000
-    //     {
-    //         // first cube
-    //         rotation1.x = Math.sin(now)
-    //         rotation1.y = Math.cos(now)
-    //         const mvpMatrix1 = getMvpMatrix(aspect, position1, rotation1, scale1)
-    //         device.queue.writeBuffer(
-    //             pipelineObj.mvpBuffer1,
-    //             0,
-    //             mvpMatrix1
-    //         )
-    //     }
-    //     {
-    //         // second cube
-    //         rotation2.x = Math.cos(now)
-    //         rotation2.y = Math.sin(now)
-    //         const mvpMatrix2 = getMvpMatrix(aspect, position2, rotation2, scale2)
-    //         device.queue.writeBuffer(
-    //             pipelineObj.mvpBuffer2,
-    //             0,
-    //             mvpMatrix2
-    //         )
-    //     }
-    //     // then draw
-    //     draw(device, context, pipelineObj)
-    //     requestAnimationFrame(frame)
-    // }
-    // frame()
+    const { device, context, format, size } = await initWebGPU(canvas);
+    const pipelineObj = await initPipeline(device, format, size.width, size.height, basicVert, basicFrag,
+        mesh1.getIndexBuffer(), mesh1.getIndexBufferByteSize(), mesh1.getVertexBuffer(), mesh1.getVertexBufferByteSize(),
+        mesh1.vertexSize, mesh1.positionOffset, mesh1.normalOffset, mesh1.uvOffset);
 
-    console.log('Done2');
+    // start loop
+    function frame() {
+        // first, update two transform matrixs
+        {
+            // first cube
+            const mvpMatrix1 = getMvpMatrix();
+            device.queue.writeBuffer(
+                pipelineObj.uniformBuffer,
+                0,
+                mvpMatrix1
+            );
+        }
+        
+        // then draw
+        draw(device, context, pipelineObj)
+        requestAnimationFrame(frame)
+
+        console.log('frame');
+    }
+    frame()
 }
 
 run();
