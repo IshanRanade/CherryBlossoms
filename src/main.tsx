@@ -1,8 +1,10 @@
 import basicVert from './shaders/basic.vert.wgsl?raw';
 import basicFrag from './shaders/basic.frag.wgsl?raw';
 import cubeObj from './meshes/cube.obj?raw';
+import magnoliaObj from './meshes/magnolia.obj?raw';
 import { Mesh } from './mesh.tsx';
 import { getMvpMatrix } from './util/math'
+import { mat4, vec3 } from 'gl-matrix'
 
 async function initWebGPU(canvas: HTMLCanvasElement) {
     if (!navigator.gpu) {
@@ -199,7 +201,7 @@ async function run() {
     if (!canvas) {
         throw new Error('No Canvas')
     }
-    let mesh1 = await Mesh.createMeshWithText(cubeObj);
+    let mesh1 = await Mesh.createMeshWithText(magnoliaObj);
 
     const { device, context, format, size } = await initWebGPU(canvas);
     const pipelineObj = await initPipeline(device, format, size.width, size.height, basicVert, basicFrag,
@@ -210,8 +212,16 @@ async function run() {
     function frame() {
         // first, update two transform matrixs
         {
+            let aspect = 4.0 / 3.0;
+            let fov = 120;
+            let near = 0.1;
+            let far = 100.0;
+            let cameraPosition = vec3.fromValues(2.0, 2.0, 2.0);
+            let lookAtPosition = vec3.fromValues(0.0, 0.0, 0.0);
+            let upDirection = vec3.fromValues(0.0, 1.0, 0.0);
+
             // first cube
-            const mvpMatrix1 = getMvpMatrix();
+            const mvpMatrix1 = getMvpMatrix(cameraPosition, lookAtPosition, upDirection, aspect, fov, near, far);
             device.queue.writeBuffer(
                 pipelineObj.uniformBuffer,
                 0,
@@ -222,8 +232,6 @@ async function run() {
         // then draw
         draw(device, context, pipelineObj)
         requestAnimationFrame(frame)
-
-        console.log('frame');
     }
     frame()
 }

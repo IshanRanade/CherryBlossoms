@@ -1,10 +1,12 @@
 import { mat4, vec3 } from 'gl-matrix'
 
 // return mvp matrix from given aspect, position, rotation, scale
-function getMvpMatrix() {
+function getMvpMatrix(cameraPosition: vec3, lookAtPosition: vec3, upDirection: vec3, 
+    aspect: number, fov: number, near: number, far: number) {
+
     let modelMatrix = getModelViewMatrix();
-    let viewMatrix = getViewMatrix();
-    let projectionMatrix = getProjectionMatrix();
+    let viewMatrix = getViewMatrix(cameraPosition, lookAtPosition, upDirection);
+    let projectionMatrix = getProjectionMatrix(aspect, fov, near, far);
     
     mat4.multiply(viewMatrix, projectionMatrix, viewMatrix);
     mat4.multiply(modelMatrix, viewMatrix, modelMatrix);
@@ -17,11 +19,7 @@ function getModelViewMatrix() {
     return modelMatrix;
 }
 
-function getViewMatrix() {
-    let cameraPosition = vec3.fromValues(10.0, 10.0, 10.0);
-    let lookAtPosition = vec3.fromValues(0.0, 0.0, 0.0);
-    let upDirection = vec3.fromValues(0.0, 1.0, 0.0);
-    
+function getViewMatrix(cameraPosition: vec3, lookAtPosition: vec3, upDirection: vec3) {
     let viewMatrix = mat4.create();
     mat4.lookAt(viewMatrix, cameraPosition, lookAtPosition, upDirection);
     return viewMatrix;
